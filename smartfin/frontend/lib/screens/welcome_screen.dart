@@ -35,7 +35,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext context) {
     // Define brand colors
     final Color primaryColor = const Color(0xFF00796B);
-    final Color accentColor = Colors.teal.shade50;
+    final Color accentColor = const Color(0xFFE0F2F1);
 
     return Scaffold(
       backgroundColor: Colors.white,

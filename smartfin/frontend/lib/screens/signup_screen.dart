@@ -102,7 +102,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
               // 1. Logo Icon
               Icon(
-                Icons.monetization_on_rounded,
+                Icons.account_balance_wallet_rounded,
                 size: 60,
                 color: _primaryGreen,
               ),
