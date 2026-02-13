@@ -24,7 +24,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _isConfirmPasswordVisible = false;
 
   // UI Colors
-  final Color _primaryGreen = const Color(0xFF5DB038);
+  final Color _primaryGreen = const Color(0xFF00796B);
   final Color _textBlack = const Color(0xFF1D1D1D);
   final Color _textGrey = const Color(0xFF888888);
   final Color _inputBorder = const Color(0xFFE0E0E0);
@@ -102,7 +102,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
               // 1. Logo Icon
               Icon(
-                Icons.monetization_on_rounded,
+                Icons.account_balance_wallet_rounded,
                 size: 60,
                 color: _primaryGreen,
               ),
