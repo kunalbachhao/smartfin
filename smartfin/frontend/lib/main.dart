@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
 import 'screens/welcome_screen.dart';
+import 'services/sms_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await SmsService.instance.init(
+    onTransaction: (tx) {
+      debugPrint("💰 Transaction: $tx");
+    },
+    onStatus: (status) {
+      debugPrint(status);
+    },
+  );
+
   runApp(const MyApp());
 }
 

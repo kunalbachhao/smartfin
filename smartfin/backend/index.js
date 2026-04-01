@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -645,6 +646,26 @@ app.use((req, res) => {
     message: "Endpoint not found",
     path: req.path
   });
+});
+
+app.post("/ai/predict", async (req, res) => {
+
+  try {
+
+    const response = await axios.post(
+      "http://localhost:8000/predict",
+      req.body
+    );
+
+    res.json(response.data);
+
+  } catch (error) {
+
+    console.error(error);
+    res.status(500).json({ error: "AI prediction failed" });
+
+  }
+
 });
 
 // Global error handler
