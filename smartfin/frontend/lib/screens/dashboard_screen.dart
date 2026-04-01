@@ -188,32 +188,44 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── LOGOUT ──
   void _handleLogout() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Logout"),
-        content: const Text("Are you sure you want to logout?"),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil('/', (route) => false);
-            },
-            child: const Text("Logout", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
+  final scaffoldContext = context; // store outer context
+  showDialog(
+    context: scaffoldContext,
+    builder: (ctx) => AlertDialog(
+      title: const Text("Logout"),
+      content: const Text("Are you sure you want to logout?"),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      actions: [
+        // Cancel button
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text("Cancel"),
+        ),
+        // Logout button
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () async {
+            Navigator.of(ctx).pop(); // close the dialog
 
+            // 1️⃣ Clear login details from SharedPreferences
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove('isLoggedIn');  // your key for login
+            await prefs.remove('username');    // optional
+            await prefs.remove('token');       // optional
+
+            // 2️⃣ Navigate to login screen and remove all previous routes
+            // ignore: use_build_context_synchronously
+            Navigator.of(scaffoldContext).pushNamedAndRemoveUntil(
+              '/login',      // replace with your login route
+              (route) => false,
+            );
+          },
+          child: const Text("Logout", style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+}
   // ── CLEAR HISTORY ──
   void _clearHistory() async {
     final confirm = await showDialog<bool>(
