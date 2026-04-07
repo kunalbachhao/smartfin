@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:convert';
 
 import 'package:another_telephony/telephony.dart';
@@ -5,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'stats_screen.dart';
+import 'login_screen.dart';
 import 'transactions.dart';
 
 // ── Background Handler ──
@@ -187,45 +190,42 @@ class _DashboardScreenState extends State<DashboardScreen>
       .fold(0.0, (sum, t) => sum + t.amount);
 
   // ── LOGOUT ──
-  void _handleLogout() {
-  final scaffoldContext = context; // store outer context
-  showDialog(
-    context: scaffoldContext,
-    builder: (ctx) => AlertDialog(
-      title: const Text("Logout"),
-      content: const Text("Are you sure you want to logout?"),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      actions: [
-        // Cancel button
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text("Cancel"),
-        ),
-        // Logout button
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          onPressed: () async {
-            Navigator.of(ctx).pop(); // close the dialog
+  void _handleLogout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Logout"),
+        content: const Text("Are you sure you want to logout?"),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text("Logout", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
 
-            // 1️⃣ Clear login details from SharedPreferences
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.remove('isLoggedIn');  // your key for login
-            await prefs.remove('username');    // optional
-            await prefs.remove('token');       // optional
+    if (confirm == true && mounted) {
+      // Clear login details from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('isLoggedIn');
+      await prefs.remove('username');
+      await prefs.remove('token');
+      await prefs.remove('userEmail');
 
-            // 2️⃣ Navigate to login screen and remove all previous routes
-            // ignore: use_build_context_synchronously
-            Navigator.of(scaffoldContext).pushNamedAndRemoveUntil(
-              '/login',      // replace with your login route
-              (route) => false,
-            );
-          },
-          child: const Text("Logout", style: TextStyle(color: Colors.white)),
-        ),
-      ],
-    ),
-  );
-}
+      // Navigate to login screen and remove all previous routes
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
   // ── CLEAR HISTORY ──
   void _clearHistory() async {
     final confirm = await showDialog<bool>(
