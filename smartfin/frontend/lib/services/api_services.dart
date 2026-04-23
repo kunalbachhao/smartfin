@@ -70,8 +70,7 @@ class ApiService {
   // Login
   static Future<Map<String, dynamic>> login(
       String email, String password) async {
-        print("🚀 LOGIN API CALLED");
-    final res = await _postRequest('login', {
+      final res = await _postRequest('login', {
       'email': email,
       'password': password,
     });
