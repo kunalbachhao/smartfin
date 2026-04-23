@@ -5,10 +5,10 @@ import 'transaction_detail_screen.dart';
 
 // Slide-up route reused from transactions_screen
 PageRoute<T> _slideRoute<T>(Widget page) => PageRouteBuilder<T>(
-      pageBuilder: (_, __, ___) => page,
+      pageBuilder: (_, _, _) => page,
       transitionDuration: const Duration(milliseconds: 300),
       reverseTransitionDuration: const Duration(milliseconds: 250),
-      transitionsBuilder: (_, animation, __, child) {
+      transitionsBuilder: (_, animation, _, child) {
         final slide = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
         return SlideTransition(position: slide, child: child);
@@ -245,7 +245,7 @@ class TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: color.withOpacity(0.15),
+        backgroundColor: color.withValues(alpha: 0.15),
         child: Icon(Icons.monetization_on, color: color),
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),

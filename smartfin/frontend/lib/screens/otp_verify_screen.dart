@@ -17,8 +17,12 @@ class _VerifyScreenState extends State<VerifyScreen> {
 
   @override
   void dispose() {
-    for (var c in controllers) c.dispose();
-    for (var f in focusNodes) f.dispose();
+    for (var c in controllers) {
+      c.dispose();
+    }
+    for (var f in focusNodes) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -139,7 +143,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
+                  color: Colors.blue.withValues( alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.mail, color: Colors.blue),

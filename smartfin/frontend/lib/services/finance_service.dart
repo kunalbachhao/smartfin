@@ -66,10 +66,10 @@ class FinanceService {
     DateTime? date,
   }) async {
     final body = <String, dynamic>{
-      if (title    != null) 'title':    title,
-      if (amount   != null) 'amount':   amount,
-      if (type     != null) 'type':     type,
-      if (category != null) 'category': category,
+      'title':    ?title,
+      'amount':   ?amount,
+      'type':     ?type,
+      'category': ?category,
       if (date     != null) 'date':     date.toIso8601String(),
     };    final response = await _client.authPut('/transactions/$id', body: body);
     return TransactionModel.fromJson(

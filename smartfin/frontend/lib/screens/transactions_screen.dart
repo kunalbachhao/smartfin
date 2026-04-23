@@ -233,10 +233,10 @@ class _DismissibleTile extends StatelessWidget {
 // ── Slide-up page route ───────────────────────────────────────────────────────
 
 PageRoute<T> _slideRoute<T>(Widget page) => PageRouteBuilder<T>(
-      pageBuilder: (_, __, ___) => page,
+      pageBuilder: (_, _, _) => page,
       transitionDuration: const Duration(milliseconds: 300),
       reverseTransitionDuration: const Duration(milliseconds: 250),
-      transitionsBuilder: (_, animation, __, child) {
+      transitionsBuilder: (_, animation, _, child) {
         final slide = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
         return SlideTransition(position: slide, child: child);
@@ -358,7 +358,7 @@ class TransactionTile extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 24,
-              backgroundColor: color.withOpacity(0.2),
+              backgroundColor: color.withValues(alpha: 0.2),
               child: Icon(icon, color: color),
             ),
             const SizedBox(width: 12),

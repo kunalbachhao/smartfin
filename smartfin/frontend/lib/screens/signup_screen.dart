@@ -9,6 +9,7 @@ class SmartFinSignUp extends StatefulWidget {
   const SmartFinSignUp({super.key});
 
   @override
+  // ignore: library_private_types_in_public_api
   _SmartFinSignUpState createState() => _SmartFinSignUpState();
 }
 
@@ -368,7 +369,7 @@ class _SmartFinSignUpState extends State<SmartFinSignUp> {
           iconUrl,
           height: 20,
           width: 20,
-          errorBuilder: (_, __, ___) => const Icon(Icons.error, size: 20),
+          errorBuilder: (_, _, _) => const Icon(Icons.error, size: 20),
         ),
         label: Text(label, style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w600)),
       ),

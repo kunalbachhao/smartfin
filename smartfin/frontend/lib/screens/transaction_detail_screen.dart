@@ -39,7 +39,7 @@ class TransactionDetailScreen extends StatelessWidget {
                 children: [
                   CircleAvatar(
                     radius: 36,
-                    backgroundColor: t.color.withOpacity(0.15),
+                    backgroundColor: t.color.withValues(alpha: 0.15),
                     child: Icon(t.icon, color: t.color, size: 32),
                   ),
                   const SizedBox(height: 16),

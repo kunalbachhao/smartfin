@@ -16,7 +16,6 @@ import 'token_storage.dart';
 /// - Structured debug logging in debug builds
 class ApiClient {
 
-  static const String _envUrl = String.fromEnvironment('SMARTFIN_API_URL');
 
   static String get baseUrl {
     return 'https://equation-anthem-delay.ngrok-free.dev';

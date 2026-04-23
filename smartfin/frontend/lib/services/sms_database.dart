@@ -32,7 +32,7 @@ class SmsDatabase {
       dbPath,
       version: _dbVersion,
       onCreate:  (db, _)       => db.execute(BankSmsRecord.createTableSql),
-      onUpgrade: (db, old, __) => _migrate(db, old),
+      onUpgrade: (db, old, _) => _migrate(db, old),
     );
   }
 

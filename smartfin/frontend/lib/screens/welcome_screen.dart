@@ -41,7 +41,7 @@ class SmartFinScreen extends StatelessWidget {
                     width: 40,
                     height: 40,
                     fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) =>
+                    errorBuilder: (_, _, _) =>
                         const Icon(Icons.show_chart, size: 40, color: Colors.blueAccent),
                   ),
                 ),
