@@ -128,16 +128,95 @@ class SmsParser {
   }
 
   // ── Account number ─────────────────────────────────────────────────────────
-  // Matches: XX1234 / x-1234 / ending 1234 / a/c 1234 / ac no 1234
-  static final _accountRe = RegExp(
-    r'(?:a/?c\s*(?:no\.?\s*)?|account\s*(?:no\.?\s*)?|ending\s*|x+[-\s]?)(\d{4,6})',
+  //
+  // Matches all common Indian bank SMS account-masking formats.
+  // Returns 'XX<digits>' (e.g. 'XX8045') or SmsTransaction.unknown.
+  //
+  // Pattern priority (first match wins):
+  //   P1 — explicit label + optional mask + 4–6 digits
+  //        e.g. "A/C XX8045", "Ac XXXXXXXX5666", "Account Number XXXXXX6377",
+  //             "a/c no. ****8045", "Acct XX1234", "account no 1234"
+  //   P2 — "ending [with/in]" + 4–6 digits
+  //        e.g. "card ending 8045", "Ac ending 8045", "ending with 8045"
+  //   P3 — mask-only: 2+ X/* immediately before 4–6 digits (no label needed)
+  //        e.g. "XXXXXX8045", "****8045", "##8045"
+  //   P4 — debit/credit context + optional mask + 4–6 digits
+  //        e.g. "debited from a/c 8045", "credited to account 8045"
+  //        e.g. "XX8045 debited"
+  //
+  // Safety: digits must NOT be preceded by a currency symbol/word (amount),
+  // OTP, Ref, Txn, IFSC, or followed by a date separator (/).
+  // All patterns require 4–6 digits — never bare 4-digit numbers.
+
+  // P1: explicit account label + optional mask + 4–6 digits
+  static final _accountP1 = RegExp(
+    r'(?:a/?c(?:\s*(?:no\.?|number))?\s*|acct\s*|account\s*(?:no\.?\s*|number\s*)?)'
+    r'(?:[xX*#\-]{1,10})?'
+    r'(\d{4,6})\b',
+    caseSensitive: false,
+  );
+
+  // P2: "ending [with/in]" + 4–6 digits
+  static final _accountP2 = RegExp(
+    r'\bending\s+(?:with\s+|in\s+)?(\d{4,6})\b',
+    caseSensitive: false,
+  );
+
+  // P3: mask-only (2+ X/* immediately before 4–6 digits)
+  static final _accountP3 = RegExp(
+    r'\b[xX*#]{2,10}(\d{4,6})\b',
+    caseSensitive: false,
+  );
+
+  // P4a: debit/credit verb + optional "from/to a/c" + optional mask + 4–6 digits
+  static final _accountP4a = RegExp(
+    r'(?:debited|credited)\s+(?:from|to)\s+(?:a/?c\s*)?(?:[xX*]{0,6})(\d{4,6})\b',
+    caseSensitive: false,
+  );
+
+  // P4b: mask + 4–6 digits + debit/credit verb (reverse order)
+  static final _accountP4b = RegExp(
+    r'\b(?:[xX*]{1,6})(\d{4,6})\s+(?:debited|credited)\b',
+    caseSensitive: false,
+  );
+
+  // Negative guard: digits that are actually amounts, OTPs, refs, or dates.
+  // Used to reject a match when the captured digits are preceded by these.
+  static final _accountNegGuard = RegExp(
+    r'(?:rs\.?|inr|₹|otp|ref(?:erence)?|txn|ifsc)\s{0,3}$',
     caseSensitive: false,
   );
 
   static String _parseAccountNumber(String body) {
-    final match = _accountRe.firstMatch(body);
-    if (match == null) return SmsTransaction.unknown;
-    return 'XX${match.group(1)}';
+    // Try each pattern in priority order.
+    for (final pattern in [
+      _accountP1,
+      _accountP2,
+      _accountP3,
+      _accountP4a,
+      _accountP4b,
+    ]) {
+      final match = pattern.firstMatch(body);
+      if (match == null) continue;
+
+      final digits = match.group(1)!;
+
+      // Safety: reject if the text immediately before the match looks like
+      // a currency/OTP/ref context (false positive guard).
+      final before = body.substring(0, match.start);
+      if (_accountNegGuard.hasMatch(before)) continue;
+
+      // Safety: reject if digits are followed by a date separator.
+      final afterStart = match.start + match.group(0)!.length;
+      if (afterStart < body.length) {
+        final nextChar = body[afterStart];
+        if (nextChar == '/' || nextChar == '-') continue;
+      }
+
+      return 'XX$digits';
+    }
+
+    return SmsTransaction.unknown;
   }
 
   // ── Counterparty (source / destination) ───────────────────────────────────

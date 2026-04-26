@@ -75,6 +75,11 @@ class SmsSyncService {
   /// Wired to [FinanceProvider.prependSmsTransaction] in main.dart.
   void Function(SmsTransaction)? onTransaction;
 
+  /// Called with each saved [SmsTransaction] that contains a valid account
+  /// number, so the UI layer can auto-create the account if needed.
+  /// Wired to [FinanceProvider.ensureAccountExists] in main.dart.
+  void Function(SmsTransaction)? onAccountDetected;
+
   // ── Default production fetcher ─────────────────────────────────────────────
 
   static Future<List<tel.SmsMessage>> _defaultFetcher() async {
@@ -165,6 +170,7 @@ class SmsSyncService {
 
     // ── 4. Filter pipeline + parse + save ─────────────────────────────────
     int countSkippedPromotional = 0;
+    int countSkippedTelecom     = 0;
     int countSkippedOld         = 0;
     int countSkippedDuplicate   = 0;
     int countSkippedNonBank     = 0;
@@ -178,21 +184,34 @@ class SmsSyncService {
     for (final raw in rawMessages) {
       final msg = _toAppMessage(raw);
 
-      // Gate 0: reject promotional senders (TRAI DLT -P suffix) before any
-      // further processing. This is checked via SmsClassifier but we log it
-      // separately for observability.
-      if (SmsClassifier.instance.isPromotionalSender(msg.sender)) {
+      // Single classify() call covers gates 0 (promotional), 1 (telecom),
+      // 2 (bank sender), and 3 (body keywords) in one pass.
+      final classification = SmsClassifier.instance.classify(msg);
+
+      // Gate 0: promotional sender (TRAI DLT -P).
+      if (classification.matchedRule == 'promotional') {
         countSkippedPromotional++;
         if (kDebugMode) {
           debugPrint(
-            '[SmsSyncService] skipped promotional sender: ${msg.sender}',
+            '[SmsSyncService] skip promotional  sender=${msg.sender}',
           );
         }
         continue;
       }
 
-      // Gate 1: bank classification (sender pattern + body keywords).
-      if (!SmsClassifier.instance.isBankSms(msg)) {
+      // Gate 0b: telecom service message (recharge, data pack, validity, SIM).
+      if (classification.matchedRule == 'telecom') {
+        countSkippedTelecom++;
+        if (kDebugMode) {
+          debugPrint(
+            '[SmsSyncService] skip telecom-svc  sender=${msg.sender}',
+          );
+        }
+        continue;
+      }
+
+      // Gate 1: not a bank/financial message.
+      if (!classification.isBankSms) {
         countSkippedNonBank++;
         continue;
       }
@@ -229,12 +248,18 @@ class SmsSyncService {
         // Notify UI layer (main isolate — safe after await).
         onTransaction?.call(tx);
 
+        // Trigger account auto-creation if a valid account number was parsed.
+        if (tx.accountNumber != SmsTransaction.unknown) {
+          onAccountDetected?.call(tx);
+        }
+
         if (kDebugMode) {
           debugPrint(
             '[SmsSyncService] saved  id=$id '
             'type=${tx.transactionType.name} '
             'bank=${tx.bankName} '
             'amount=${tx.amountDisplay} '
+            'rule=${classification.matchedRule} '
             'ts=${tx.timestamp}',
           );
         }
@@ -261,6 +286,7 @@ class SmsSyncService {
         '[SmsSyncService] sync complete ──────────────────────\n'
         '  fetched        : ${rawMessages.length}\n'
         '  promotional    : $countSkippedPromotional\n'
+        '  telecom svc    : $countSkippedTelecom\n'
         '  non-bank       : $countSkippedNonBank\n'
         '  no keyword     : $countSkippedNoKeyword\n'
         '  too old        : $countSkippedOld\n'

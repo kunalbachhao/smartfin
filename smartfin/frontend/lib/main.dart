@@ -4,11 +4,15 @@ import 'providers/finance_provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/main_shell.dart';
+import 'services/sms_classifier.dart';
 import 'services/sms_pipeline.dart';
 import 'services/sms_sync_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load telecom keyword list from asset before the first SMS arrives.
+  await SmsClassifier.loadKeywords();
 
   runApp(
     MultiProvider(
@@ -22,10 +26,18 @@ void main() {
             SmsPipeline.instance.onTransaction =
                 context.read<FinanceProvider>().prependSmsTransaction;
 
+            // Auto-create accounts when a new bank account number is detected.
+            SmsPipeline.instance.onAccountDetected =
+                context.read<FinanceProvider>().ensureAccountExists;
+
             // Wire SmsSyncService callback alongside SmsPipeline so historical
             // inbox transactions are also reflected in the UI immediately.
             SmsSyncService.instance.onTransaction =
                 context.read<FinanceProvider>().prependSmsTransaction;
+
+            // Auto-create accounts from historical inbox sync as well.
+            SmsSyncService.instance.onAccountDetected =
+                context.read<FinanceProvider>().ensureAccountExists;
 
             // Start listening only after the callback is registered.
             SmsPipeline.instance.start();
@@ -115,7 +127,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     if (isAuthenticated && !_wasAuthenticated) {
       _wasAuthenticated = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) finance.loadAll();
+        if (mounted) finance.loadAll(userId: auth.userId);
       });
     }
 

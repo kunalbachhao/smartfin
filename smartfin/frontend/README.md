@@ -1,16 +1,23 @@
-# smartfin
+# SmartFin — Flutter Frontend
 
-A new Flutter project.
+This is the Flutter (Android) frontend for SmartFin.
 
-## Getting Started
+For full documentation, setup instructions, and API reference see the [root README](../README.md).
 
-This project is a starting point for a Flutter application.
+## Quick start
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+flutter run
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Key directories
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```
+lib/
+├── main.dart                   # App entry, provider wiring, lifecycle observer
+├── providers/                  # FinanceProvider, AuthProvider
+├── screens/                    # All UI screens
+├── services/                   # API client, SMS pipeline, database, classifier
+└── models/                     # Data models
+```

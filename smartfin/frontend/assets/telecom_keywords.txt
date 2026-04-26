@@ -1,0 +1,144 @@
+# Telecom / carrier service message keywords
+# One keyword per line. Lines starting with # are comments and are ignored.
+# Case-insensitive matching is applied at runtime.
+# Add or remove keywords here to tune filtering without changing any Dart code.
+
+# ── Recharge ──────────────────────────────────────────────────────────────────
+recharge
+recharged
+prepaid recharge
+talktime
+top-up
+topup
+
+# ── Data pack / plan ──────────────────────────────────────────────────────────
+data pack
+data balance
+data exhausted
+data expired
+data activated
+data added
+internet pack
+internet balance
+internet activated
+pack activated
+pack renewed
+pack expired
+pack expiring
+plan activated
+plan renewed
+plan expired
+plan expiring
+plan ends
+GB data
+MB data
+data remaining
+data used
+data left
+5G activated
+4G activated
+unlimited data
+daily data
+night data
+
+# ── Validity ──────────────────────────────────────────────────────────────────
+validity extended
+validity expires
+validity expiry
+validity renewed
+valid till
+valid for
+valid upto
+expires in
+expiring soon
+service expires
+service expiring
+plan expires
+pack expires
+
+# ── SIM / number service ──────────────────────────────────────────────────────
+SIM activated
+SIM blocked
+SIM unblocked
+SIM replaced
+SIM card
+number ported
+MNP request
+MNP initiated
+MNP completed
+welcome to airtel
+welcome to jio
+welcome to vi
+welcome to bsnl
+welcome to vodafone
+welcome to idea
+welcome to mtnl
+your number is active
+your jio number
+your airtel number
+
+# ── Low balance / expiry alerts ───────────────────────────────────────────────
+low balance
+low talktime
+insufficient balance
+insufficient talktime
+main balance
+recharge now
+recharge immediately
+recharge before
+recharge to continue
+your plan expires
+your pack expires
+your service expires
+your validity expires
+has expired
+is expiring
+
+# ── Offers / promotions ───────────────────────────────────────────────────────
+free 5G
+free upgrade
+upgrade to 5G
+upgrade to 4G
+special offer
+limited offer
+exclusive offer
+bonus data
+extra data
+double data
+free calls
+unlimited calls
+free SMS
+refer and earn
+invite and earn
+cashback offer
+discount offer
+enjoy unlimited
+activate now
+activate offer
+best plan
+new plan
+upgrade plan
+
+# ── Carrier-specific service phrases ─────────────────────────────────────────
+jio fiber
+airtel xstream
+airtel thanks
+vi movies
+bsnl broadband
+mtnl broadband
+postpaid bill
+bill generated
+bill due
+bill payment reminder
+auto pay
+auto-pay
+roaming activated
+roaming pack
+international roaming
+missed call alert
+call forwarding
+do not disturb
+DND activated
+DND deactivated
+caller tune
+hello tune

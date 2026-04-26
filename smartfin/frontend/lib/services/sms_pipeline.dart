@@ -27,6 +27,11 @@ class SmsPipeline {
   /// Typically wired to [FinanceProvider.prependSmsTransaction].
   void Function(SmsTransaction)? onTransaction;
 
+  /// Called with each saved [SmsTransaction] that contains a valid account
+  /// number, so the UI layer can auto-create the account if needed.
+  /// Wired to [FinanceProvider.ensureAccountExists] in main.dart.
+  void Function(SmsTransaction)? onAccountDetected;
+
   bool _running = false;
 
   void start() {
@@ -39,18 +44,31 @@ class SmsPipeline {
   }
 
   Future<void> _process(SmsMessage sms) async {
-    // 0. Reject promotional senders (TRAI DLT -P suffix) before classification.
-    if (SmsClassifier.instance.isPromotionalSender(sms.sender)) {
+    // Single classify() call covers all gates — promotional, telecom, bank.
+    final classification = SmsClassifier.instance.classify(sms);
+
+    // 0. Promotional sender (TRAI DLT -P).
+    if (classification.matchedRule == 'promotional') {
       if (kDebugMode) {
         debugPrint(
-          '[SmsPipeline] skipped promotional sender: ${sms.sender}',
+          '[SmsPipeline] skip promotional  sender=${sms.sender}',
         );
       }
       return;
     }
 
-    // 1. Classify — drop non-bank messages immediately.
-    if (!SmsClassifier.instance.isBankSms(sms)) return;
+    // 0b. Telecom service message (recharge, data pack, validity, SIM).
+    if (classification.matchedRule == 'telecom') {
+      if (kDebugMode) {
+        debugPrint(
+          '[SmsPipeline] skip telecom-svc  sender=${sms.sender}',
+        );
+      }
+      return;
+    }
+
+    // 1. Not a bank/financial message — drop immediately.
+    if (!classification.isBankSms) return;
 
     // 2. Parse into a fully structured SmsTransaction.
     final tx = SmsParser.parse(sms);
@@ -59,13 +77,14 @@ class SmsPipeline {
     final saved = await SmsDatabase.instance.saveTransaction(tx);
 
     // 4. Notify the UI layer on the main isolate.
-    // After an `await`, execution resumes on the main isolate, so calling
-    // callback(tx) directly is safe. Using addPostFrameCallback was the bug:
-    // when the scheduler is idle (no frame pending), the callback was queued
-    // but never executed.
     final callback = onTransaction;
     if (callback != null) {
       callback(tx);
+    }
+
+    // 4b. Trigger account auto-creation if a valid account number was parsed.
+    if (tx.accountNumber != SmsTransaction.unknown) {
+      onAccountDetected?.call(tx);
     }
 
     // 5. Debug log — metadata only, no sensitive content.
@@ -75,6 +94,7 @@ class SmsPipeline {
         'type=${saved.type.name} '
         'bank=${saved.bankName} '
         'amount=${saved.amountDisplay} '
+        'rule=${classification.matchedRule} '
         'ts=${saved.timestamp}',
       );
     }

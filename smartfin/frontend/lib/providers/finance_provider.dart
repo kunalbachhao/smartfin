@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_models.dart';
 import '../models/sms_transaction.dart';
 import '../data/dummy_data.dart';
@@ -101,6 +102,32 @@ class FinanceProvider extends ChangeNotifier {
   List<TransactionModel> _transactions = [];
   AnalyticsData?         _analyticsData;
 
+  // ── Monthly budget ─────────────────────────────────────────────────────────
+
+  /// Default budget used when no value has been set by the user.
+  static const double defaultMonthlyBudget = 10000.0;
+
+  /// SharedPreferences key — prefixed with userId so it is user-specific.
+  static String _budgetKey(String userId) => 'monthly_budget_$userId';
+
+  double _monthlyBudget = defaultMonthlyBudget;
+
+  /// The user's current monthly budget in rupees.
+  double get monthlyBudget => _monthlyBudget;
+
+  /// Fraction of the monthly budget consumed by expenses this month (0.0–1.0+).
+  /// Values above 1.0 indicate the budget has been exceeded.
+  double get budgetUsageRatio {
+    if (_monthlyBudget <= 0) return 0.0;
+    return totalExpenses / _monthlyBudget;
+  }
+
+  /// Remaining budget this month (can be negative if over budget).
+  double get budgetRemaining => _monthlyBudget - totalExpenses;
+
+  /// `true` when expenses have exceeded the monthly budget.
+  bool get isBudgetExceeded => totalExpenses > _monthlyBudget;
+
   // ── Load state ─────────────────────────────────────────────────────────────
 
   LoadState _accountsState     = LoadState.idle;
@@ -130,7 +157,7 @@ class FinanceProvider extends ChangeNotifier {
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
 
-  Future<void> loadAll() {
+  Future<void> loadAll({String? userId}) {
     // Set all three loading states in one batch before firing the async calls.
     // This produces a single notifyListeners() instead of three, cutting the
     // number of rebuilds triggered at startup from 6 to 4.
@@ -142,10 +169,11 @@ class FinanceProvider extends ChangeNotifier {
     _analyticsError    = null;
     notifyListeners();
 
-    // Fire all three independently — failures in one do not block the others.
+    // Fire all four independently — failures in one do not block the others.
     _loadAccountsInternal();
     _loadTransactionsInternal();
     _loadAnalyticsInternal();
+    if (userId != null && userId.isNotEmpty) loadBudget(userId);
     return Future.value();
   }
 
@@ -160,6 +188,69 @@ class FinanceProvider extends ChangeNotifier {
     _transactionsError = null;
     _analyticsError    = null;
     notifyListeners();
+  }
+
+  // ── Budget ─────────────────────────────────────────────────────────────────
+
+  /// Loads the monthly budget for [userId].
+  ///
+  /// Priority:
+  ///   1. Backend (`GET /budget`) — authoritative, user-specific across devices.
+  ///   2. Local SharedPreferences — offline fallback, keyed by userId.
+  ///   3. [defaultMonthlyBudget] (₹10,000) — first-run default.
+  ///
+  /// The loaded value is persisted locally so it survives offline sessions.
+  Future<void> loadBudget(String userId) async {
+    // Try backend first (authoritative).
+    double loaded;
+    try {
+      loaded = await _service.getBudget(defaultBudget: defaultMonthlyBudget);
+      // Cache locally for offline use.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_budgetKey(userId), loaded);
+    } catch (_) {
+      // Backend unavailable — fall back to local cache.
+      final prefs = await SharedPreferences.getInstance();
+      loaded = prefs.getDouble(_budgetKey(userId)) ?? defaultMonthlyBudget;
+    }
+
+    if (_monthlyBudget != loaded) {
+      _monthlyBudget = loaded;
+      notifyListeners();
+    }
+
+    if (kDebugMode) {
+      debugPrint('[FinanceProvider] budget loaded: ₹$_monthlyBudget');
+    }
+  }
+
+  /// Updates the monthly budget for [userId], persists locally, and syncs
+  /// to the backend.
+  ///
+  /// UI updates immediately (optimistic); backend failure is logged but does
+  /// not revert the local value — the next [loadBudget] call will re-sync.
+  Future<void> setBudget(double amount, String userId) async {
+    if (amount < 0) return;
+
+    _monthlyBudget = amount;
+    notifyListeners();
+
+    // Persist locally first so the value survives offline.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_budgetKey(userId), amount);
+
+    // Sync to backend.
+    try {
+      await _service.setBudget(amount);
+      if (kDebugMode) {
+        debugPrint('[FinanceProvider] budget synced to backend: ₹$amount');
+      }
+    } on ApiException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[FinanceProvider] budget sync failed: ${e.message}');
+      }
+      // Local value already updated — no rollback needed.
+    }
   }
 
   // ── Accounts ───────────────────────────────────────────────────────────────
@@ -338,6 +429,67 @@ class FinanceProvider extends ChangeNotifier {
   void prependSmsTransaction(SmsTransaction tx) {
     _transactions = [tx.toTransactionModel(), ..._transactions];
     notifyListeners();
+  }
+
+  /// Auto-create a "My Accounts" entry when a new bank account number is
+  /// detected from an SMS transaction, if it does not already exist.
+  ///
+  /// Duplicate check: compares the last-4-digit suffix of [tx.accountNumber]
+  /// (e.g. "XX8045" → "8045") against all existing account numbers in memory.
+  /// If a match is found, no API call is made.
+  ///
+  /// On success, the new account is prepended to [_accounts] and listeners
+  /// are notified so the dashboard updates immediately.
+  ///
+  /// Failures are logged and silently swallowed — account auto-creation is
+  /// best-effort and must never break the transaction save flow.
+  Future<void> ensureAccountExists(SmsTransaction tx) async {
+    // Only act when a genuine account number was extracted.
+    final acctNum = tx.accountNumber;
+    if (acctNum == SmsTransaction.unknown) return;
+
+    // Extract the last-4-digit suffix for dedup (e.g. "XX8045" → "8045").
+    final suffix = acctNum.replaceAll(RegExp(r'[^0-9]'), '');
+    if (suffix.isEmpty) return;
+
+    // In-memory dedup: check if any existing account already ends with
+    // the same digits. Avoids an API call on every SMS.
+    final alreadyKnown = _accounts.any((a) {
+      final existing = a.number.replaceAll(RegExp(r'[^0-9]'), '');
+      return existing.endsWith(suffix);
+    });
+    if (alreadyKnown) return;
+
+    // New account detected — create it on the backend.
+    try {
+      final created = await _service.createAccount(
+        name:    tx.bankName,
+        number:  '**** $suffix',
+        balance: 0,
+      );
+
+      // Prepend to in-memory list and notify UI.
+      _accounts = [created, ..._accounts];
+      notifyListeners();
+
+      if (kDebugMode) {
+        debugPrint(
+          '[FinanceProvider] auto-created account: '
+          'bank=${tx.bankName} suffix=$suffix id=${created.id}',
+        );
+      }
+    } on ApiException catch (e) {
+      // Best-effort — log and continue. Never throw.
+      if (kDebugMode) {
+        debugPrint(
+          '[FinanceProvider] auto-create account failed: ${e.message}',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[FinanceProvider] auto-create account error: $e');
+      }
+    }
   }
 
   // ── Analytics ──────────────────────────────────────────────────────────────

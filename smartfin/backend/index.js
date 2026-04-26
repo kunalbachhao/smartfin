@@ -11,6 +11,7 @@ const nodemailer = require("nodemailer");
 const transactionsRouter = require("./routes/transactions");
 const accountsRouter     = require("./routes/accounts");
 const analyticsRouter    = require("./routes/analytics");
+const authMiddleware     = require("./middleware/auth");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,6 +83,11 @@ const UserSchema = new mongoose.Schema({
   verified: { 
     type: Boolean, 
     default: true 
+  },
+  monthlyBudget: {
+    type: Number,
+    default: 10000,   // ₹10,000 default
+    min: 0,
   },
   createdAt: {
     type: Date,
@@ -650,6 +656,59 @@ app.post("/login", async (req, res) => {
 app.use("/transactions", transactionsRouter);
 app.use("/accounts",     accountsRouter);
 app.use("/analytics",    analyticsRouter);
+
+// ── Budget endpoints (JWT-protected) ──────────────────────────────────────────
+
+// GET /budget — returns the authenticated user's monthly budget
+app.get("/budget", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select("monthlyBudget");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    res.json({
+      success: true,
+      data: { monthlyBudget: user.monthlyBudget ?? 10000 },
+    });
+  } catch (err) {
+    console.error("GET /budget error:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch budget" });
+  }
+});
+
+// PUT /budget — updates the authenticated user's monthly budget
+// Body: { monthlyBudget: number }
+app.put("/budget", authMiddleware, async (req, res) => {
+  try {
+    const { monthlyBudget } = req.body;
+
+    if (monthlyBudget === undefined || isNaN(Number(monthlyBudget)) || Number(monthlyBudget) < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "monthlyBudget must be a non-negative number",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { monthlyBudget: Number(monthlyBudget) },
+      { new: true, select: "monthlyBudget" }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "Budget updated",
+      data: { monthlyBudget: user.monthlyBudget },
+    });
+  } catch (err) {
+    console.error("PUT /budget error:", err);
+    res.status(500).json({ success: false, message: "Failed to update budget" });
+  }
+});
 
 // 404 handler
 app.use((req, res) => {

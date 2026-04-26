@@ -1,6 +1,6 @@
 # SmartFin — Personal Finance Manager
 
-SmartFin is a full-stack personal finance application built with **Flutter** (Android) and a **Node.js/Express** backend. It helps users track bank transactions, view spending analytics, and automatically detect bank SMS messages — all with INR (₹) formatting and Indian number grouping throughout.
+SmartFin is a full-stack personal finance application built with **Flutter** (Android) and a **Node.js/Express** backend. It automatically reads bank SMS messages, parses them into structured transactions, detects bank accounts, tracks spending against a monthly budget, and syncs everything to MongoDB Atlas — all with ₹ (INR) formatting and Indian number grouping throughout.
 
 ---
 
@@ -8,11 +8,12 @@ SmartFin is a full-stack personal finance application built with **Flutter** (An
 
 - [Project Overview](#project-overview)
 - [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Features](#features)
 - [API Endpoints](#api-endpoints)
-- [Screenshots](#screenshots)
+- [Architecture](#architecture)
 - [Contributing](#contributing)
 - [License](#license)
 - [Contact](#contact)
@@ -23,10 +24,11 @@ SmartFin is a full-stack personal finance application built with **Flutter** (An
 
 SmartFin solves a common problem for Indian users: fragmented financial data. It combines:
 
-- A **Flutter mobile app** that reads incoming bank SMS messages, parses them into structured transactions, and displays them alongside manually added entries
-- A **Node.js REST API** backed by MongoDB Atlas that handles authentication, transaction storage, account management, and analytics
+- A **Flutter mobile app** that reads incoming and historical bank SMS messages, parses them into structured transactions, auto-detects bank accounts, and displays everything alongside manually added entries
+- A **Node.js REST API** backed by MongoDB Atlas for authentication, transaction storage, account management, analytics, and budget settings
 - **Email OTP verification** for secure account creation via Gmail
 - **Fully local SMS processing** — no SMS content is ever sent to the server
+- **Smart filtering** — promotional and telecom service messages are automatically skipped
 
 ---
 
@@ -34,11 +36,76 @@ SmartFin solves a common problem for Indian users: fragmented financial data. It
 
 | Layer | Technology |
 |---|---|
-| Mobile frontend | Flutter 3.x (Dart), Provider, sqflite |
+| Mobile frontend | Flutter 3.x (Dart 3.10+), Provider, sqflite |
 | Backend API | Node.js, Express 5, MongoDB Atlas, Mongoose |
 | Authentication | JWT (7-day expiry), bcryptjs, email OTP |
-| SMS detection | Android BroadcastReceiver + Flutter EventChannel |
+| SMS detection (real-time) | Android BroadcastReceiver + Flutter EventChannel (`another_telephony`) |
+| SMS detection (historical) | `another_telephony` inbox query + cooldown guard |
+| Local storage | sqflite (transactions), SharedPreferences (sync state, budget) |
+| Permissions | `permission_handler` |
 | Email | Nodemailer + Gmail App Password |
+
+---
+
+## Project Structure
+
+```
+smartfin/
+├── backend/                    # Node.js/Express API
+│   ├── index.js                # App entry, auth routes, budget routes
+│   ├── middleware/
+│   │   └── auth.js             # JWT middleware
+│   ├── models/
+│   │   ├── Account.js          # Account schema (userId, name, number, balance)
+│   │   └── Transaction.js      # Transaction schema (userId, title, amount, type, category, date)
+│   └── routes/
+│       ├── accounts.js         # CRUD for accounts
+│       ├── analytics.js        # Aggregated analytics
+│       └── transactions.js     # CRUD for transactions
+│
+└── frontend/                   # Flutter app
+    ├── android/
+    │   └── app/src/main/kotlin/com/example/smartfin/
+    │       ├── MainActivity.kt         # EventChannel setup
+    │       ├── SmsReceiver.kt          # BroadcastReceiver for incoming SMS
+    │       ├── SmsEventSink.kt         # Process-wide sink bridge
+    │       └── SmsForegroundService.kt # Headless engine for background SMS
+    └── lib/
+        ├── main.dart                   # App entry, provider wiring, lifecycle observer
+        ├── data/
+        │   └── dummy_data.dart         # Static fallback content
+        ├── models/
+        │   ├── app_models.dart         # AccountModel, TransactionModel, AnalyticsData
+        │   ├── bank_sms_record.dart    # SQLite storage model
+        │   └── sms_transaction.dart    # Parsed SMS domain model
+        ├── providers/
+        │   ├── auth_provider.dart      # Login, signup, session restore
+        │   └── finance_provider.dart   # Transactions, accounts, analytics, budget
+        ├── screens/
+        │   ├── analytics_screen.dart
+        │   ├── dashboard_screen.dart
+        │   ├── login_screen.dart
+        │   ├── main_shell.dart
+        │   ├── otp_verify_screen.dart
+        │   ├── profile_screen.dart
+        │   ├── signup_screen.dart
+        │   ├── sms_sync_screen.dart    # SMS sync status + manual refresh
+        │   ├── transaction_detail_screen.dart
+        │   ├── transactions_screen.dart
+        │   └── welcome_screen.dart
+        └── services/
+            ├── api_client.dart         # HTTP client with retry
+            ├── auth_service.dart       # Auth API calls
+            ├── finance_service.dart    # Transactions, accounts, analytics, budget API
+            ├── sms_classifier.dart     # Promotional + telecom + bank classification
+            ├── sms_database.dart       # SQLite CRUD for parsed SMS transactions
+            ├── sms_parser.dart         # Extracts amount, type, bank, account, counterparty
+            ├── sms_pipeline.dart       # Real-time SMS → classify → parse → save
+            ├── sms_service.dart        # EventChannel stream wrapper
+            ├── sms_storage_helper.dart # SharedPreferences: lastSyncTime, processedIds
+            ├── sms_sync_service.dart   # Historical inbox backfill with cooldown
+            └── token_storage.dart      # Secure JWT storage
+```
 
 ---
 
@@ -72,17 +139,11 @@ Create a `.env` file in the `backend/` directory:
 
 ```env
 PORT=3000
-MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/
+MONGO_URI=mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/smartfin
 JWT_SECRET=your_long_random_secret_here
 EMAIL_USER=your_gmail@gmail.com
 EMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
 ```
-
-> **Getting a Gmail App Password:**
-> 1. Go to [Google Account Security](https://myaccount.google.com/security)
-> 2. Enable 2-Step Verification
-> 3. Go to [App Passwords](https://myaccount.google.com/apppasswords)
-> 4. Generate a password for "Mail" and paste it as `EMAIL_APP_PASSWORD`
 
 Start the backend:
 
@@ -104,12 +165,13 @@ cd frontend
 flutter pub get
 ```
 
-Update the API base URL in `frontend/lib/services/api_client.dart` to point to your backend:
+Update the API base URL in `frontend/lib/services/api_client.dart`:
 
 ```dart
-static const String _baseUrl = 'http://10.0.2.2:3000'; // Android emulator
+static String get baseUrl => 'http://10.0.2.2:3000'; // Android emulator
 // or
-static const String _baseUrl = 'http://YOUR_LOCAL_IP:3000'; // Physical device
+static String get baseUrl => 'http://YOUR_LOCAL_IP:3000'; // Physical device
+// or use ngrok for a public URL
 ```
 
 Connect an Android device or start an emulator, then run:
@@ -118,7 +180,7 @@ Connect an Android device or start an emulator, then run:
 flutter run
 ```
 
-> **SMS permissions:** On first launch the app will request `RECEIVE_SMS` permission. Grant it to enable automatic bank SMS detection.
+> **SMS permissions:** On first launch the app requests `READ_SMS` and `RECEIVE_SMS`. Grant both to enable automatic bank SMS detection and historical inbox sync.
 
 ---
 
@@ -135,25 +197,17 @@ node index.js
 
 ```bash
 cd frontend
-flutter run                    # debug mode
-flutter run --release          # release mode
-flutter build apk              # build APK
+flutter run          # debug mode
+flutter run --release
+flutter build apk    # build APK
 ```
 
-### Running backend tests
-
-```bash
-cd backend
-npm test
-```
-
-### Running Flutter tests
+### Cleaning build artifacts
 
 ```bash
 cd frontend
-flutter test                                    # all tests
-flutter test test/sms_classifier_test.dart      # SMS classifier only
-flutter test test/sms_parser_test.dart          # SMS parser only
+flutter clean
+flutter pub get
 ```
 
 ---
@@ -168,313 +222,200 @@ flutter test test/sms_parser_test.dart          # SMS parser only
 - **Session restore** — app restores the previous session on cold start without re-login
 
 ### Dashboard
-- Net worth, total income, total expenses, and growth percentage at a glance
+- Net worth, total income, total expenses, and growth percentage
+- Gradient account cards showing bank name, masked account number (`•••• 8045`), balance, and ACTIVE status
 - Recent transactions list (last 4 entries)
-- Quick navigation to the full transactions screen
+- Skeleton loading UI while data loads
+- Empty state for accounts with helpful message
 
 ### Transactions
-- Full paginated transaction list grouped by date
-- Add new transactions (title, amount, type, category, date)
-- Swipe-to-delete with confirmation dialog
-- Pull-to-refresh syncs with the backend
-- Tap any transaction to view the detail screen
+- Full transaction list grouped by date section labels
+- Merge of API transactions and local SMS transactions with deduplication
+- Swipe-to-delete with confirmation dialog — removes from SQLite and adds tombstone to prevent re-sync
+- Pull-to-refresh
+- Tap any transaction to view the detail screen with SMS breakdown fields
 
 ### Analytics
-- Total balance, net performance percentage, monthly usage ratio
-- Spending breakdown by category with progress bars
-- Legend entries for fixed costs vs lifestyle spending
-- Date-range filtering (`from` / `to` query params)
+- Total balance, net performance %, monthly usage ratio (circular progress)
+- Spending breakdown by category with animated progress bars
+- Week / Month / Year segmented control with date-range filtering
+- Falls back to locally computed values when API is unavailable
 
-### Accounts
-- View all linked bank accounts with balance in ₹ (Indian grouping)
-- Create new accounts
+### My Accounts
+- Gradient cards per bank (HDFC navy, SBI blue, ICICI red, Axis purple, Kotak orange, default navy)
+- Account number displayed as `•••• XXXX` regardless of stored format
+- **Auto-detection from SMS** — when a new bank account number is parsed from an SMS, the account is automatically created in "My Accounts" if it doesn't already exist
+- Duplicate prevention via last-4-digit suffix matching (no API call if already known)
+- Empty state placeholder when no accounts exist yet
 
-### Bank SMS Detection (Android)
-- **Automatic detection** — listens for `SMS_RECEIVED` broadcasts via a manifest-registered `BroadcastReceiver`
-- **Background reliability** — a foreground service with a headless Flutter engine keeps the pipeline alive when the app is killed
-- **Classification** — sender ID patterns (HDFCBK, SBIINB, AXISBK, PAYTM, etc.) and body keywords (credited, debited, UPI, INR, txn, A/c) identify bank messages
-- **Parsing** — extracts amount, credit/debit type, bank name, masked account number, counterparty (UPI ID or merchant), and timestamp
-- **Local storage** — parsed transactions saved to on-device SQLite (`sqflite`); no SMS content is sent to the server
-- **Live UI update** — new SMS transactions appear at the top of the transactions list instantly, without a network round-trip
-- **Privacy** — non-bank messages are dropped immediately; SMS body is never logged
+### Bank SMS Detection — Real-time
+- Listens for `SMS_RECEIVED` broadcasts via a manifest-registered `SmsReceiver`
+- A foreground service with a headless Flutter engine keeps the pipeline alive when the app is killed
+- Single `classify()` call per message covers all filter gates
 
-### Currency Formatting
-- All amounts displayed in ₹ with correct Indian number grouping (e.g. ₹10,00,000.00)
-- Consistent formatting across backend API responses and Flutter UI
+### Bank SMS Detection — Historical Inbox Sync
+- Reads up to 100 most recent inbox messages on app open and resume
+- 5-minute cooldown prevents redundant reads on rapid foreground/background cycles
+- Incremental sync — only processes messages newer than `lastSyncTime`
+- Processed-ID set persisted in SharedPreferences prevents duplicate inserts across restarts
+- Manual refresh available from the SMS Sync screen (Profile → SMS Transaction Sync)
+
+### SMS Filtering Pipeline
+
+Every SMS passes through these gates in order before being parsed or stored:
+
+| Gate | Filter | Action |
+|---|---|---|
+| 0 | Promotional sender (TRAI DLT `-P` suffix, e.g. `AD-60022-P`) | Drop |
+| 1 | Telecom service message (recharge, data pack, validity, SIM) | Drop |
+| 1† | Financial safety guard (debited/credited/UPI/INR in body) | Override — always pass |
+| 2 | Bank/payment sender pattern (HDFC, SBIN, ICICI, PAYTM, etc.) | Pass |
+| 3 | Body keyword scan (credited, debited, UPI, INR, txn, payment, etc.) | Pass |
+| 4 | Transaction keyword check (sync service only) | Pass |
+| 5 | Timestamp after `lastSyncTime` (sync service only) | Pass |
+| 6 | Not in processed-ID set (sync service only) | Pass |
+
+### SMS Parsing
+- **Amount** — matches `INR 5,000`, `Rs.500`, `₹200.00`
+- **Transaction type** — credit / debit / OTP / unknown
+- **Bank name** — inferred from sender ID (25+ banks mapped)
+- **Account number** — 5-pattern extraction: label+mask, "ending", mask-only, debit/credit context
+- **Counterparty** — UPI VPA, merchant name, or generic to/from pattern
+
+### Monthly Budget
+- Default budget: **₹10,000/month**
+- User-specific — keyed by `userId` in SharedPreferences
+- Synced to MongoDB (`monthlyBudget` field on User document)
+- `budgetUsageRatio`, `budgetRemaining`, `isBudgetExceeded` computed getters in `FinanceProvider`
+- Loads from backend on login; falls back to local cache when offline
+
+### Privacy
+- Non-bank messages dropped immediately after classification
+- SMS body never logged in debug output
+- Bank messages stored locally only — no SMS content sent to server
+- Tombstone system prevents deleted transactions from being re-inserted by sync
 
 ---
 
 ## API Endpoints
 
-All protected endpoints require the header:
+All protected endpoints require:
 ```
 Authorization: Bearer <jwt_token>
 ```
 
 ### Auth
 
-#### `POST /signup-init`
-Start registration — validates credentials and sends an OTP email.
-
-**Request:**
-```json
-{ "email": "user@example.com", "password": "secret123" }
-```
-**Response `200`:**
-```json
-{ "success": true, "message": "Verification code sent to your email", "email": "user@example.com" }
-```
-
----
-
-#### `POST /verify-signup`
-Complete registration by verifying the OTP.
-
-**Request:**
-```json
-{ "email": "user@example.com", "code": "482910" }
-```
-**Response `201`:**
-```json
-{
-  "success": true,
-  "token": "<jwt>",
-  "user": { "id": "...", "email": "user@example.com" }
-}
-```
-
----
-
-#### `POST /resend-otp`
-Regenerate and resend the OTP for a pending signup.
-
-**Request:**
-```json
-{ "email": "user@example.com" }
-```
-
----
-
-#### `POST /login`
-Authenticate an existing user.
-
-**Request:**
-```json
-{ "email": "user@example.com", "password": "secret123" }
-```
-**Response `200`:**
-```json
-{
-  "success": true,
-  "token": "<jwt>",
-  "user": { "id": "...", "email": "user@example.com" }
-}
-```
-
----
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/signup-init` | Start registration, send OTP email |
+| `POST` | `/verify-signup` | Verify OTP, create account, return JWT |
+| `POST` | `/resend-otp` | Regenerate and resend OTP |
+| `POST` | `/login` | Authenticate, return JWT |
+| `GET` | `/health` | Server, DB, and email status |
 
 ### Transactions 🔒
 
-#### `GET /transactions?page=1&limit=100`
-List all transactions for the authenticated user.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/transactions?page=1&limit=100` | List transactions (paginated, filterable) |
+| `POST` | `/transactions` | Create transaction |
+| `PUT` | `/transactions/:id` | Partial update |
+| `DELETE` | `/transactions/:id` | Delete |
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "...",
-      "title": "Groceries",
-      "subtitle": "Swiggy Instamart",
-      "amount": "-₹850.00",
-      "amountValue": 850,
-      "isIncome": false,
-      "type": "expense",
-      "category": "Food",
-      "sectionLabel": "11 Apr 2026",
-      "color": "red"
-    }
-  ]
-}
-```
-
-#### `POST /transactions`
-Create a new transaction.
-
-**Request:**
-```json
-{
-  "title": "Salary",
-  "amount": 85000,
-  "type": "income",
-  "category": "Salary",
-  "date": "2026-04-01T00:00:00.000Z"
-}
-```
-
-#### `PUT /transactions/:id`
-Update a transaction (partial update supported).
-
-#### `DELETE /transactions/:id`
-Delete a transaction by ID.
-
----
+**Query filters:** `category`, `type` (`income`/`expense`), `from` (ISO date), `to` (ISO date)
 
 ### Accounts 🔒
 
-#### `GET /accounts`
-List all accounts.
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "...",
-      "title": "HDFC Savings",
-      "number": "XXXX1234",
-      "balance": "₹9,45,200.00",
-      "balanceValue": 945200
-    }
-  ]
-}
-```
-
-#### `POST /accounts`
-Create a new account.
-
-**Request:**
-```json
-{ "name": "HDFC Savings", "number": "XXXX1234", "balance": 945200 }
-```
-
----
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/accounts` | List all accounts |
+| `POST` | `/accounts` | Create account |
+| `PUT` | `/accounts/:id` | Update account |
+| `DELETE` | `/accounts/:id` | Delete account |
 
 ### Analytics 🔒
 
-#### `GET /analytics?from=2026-04-01&to=2026-04-30`
-Computed financial analytics for the authenticated user.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/analytics?from=&to=` | Aggregated analytics for date range |
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "totalBalance": "₹85,000.00",
-    "netPerformance": "+62.4%",
-    "monthlyUsageRatio": 0.376,
-    "legendEntries": [
-      { "title": "Fixed Costs", "amount": "₹32,000.00", "color": "blue" },
-      { "title": "Lifestyle",   "amount": "₹85,000.00", "color": "teal" }
-    ],
-    "categories": [
-      { "title": "Food", "amount": "₹12,500.00", "progress": 1.0, "color": "blue" }
-    ],
-    "summary": {
-      "totalIncome": 85000,
-      "totalExpenses": 32000,
-      "netBalance": 53000,
-      "transactionCount": 14
-    }
-  }
-}
-```
+**Response includes:** `totalBalance`, `netPerformance`, `monthlyUsageRatio`, `legendEntries`, `categories`, `summary`
+
+### Budget 🔒
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/budget` | Get user's monthly budget (default ₹10,000) |
+| `PUT` | `/budget` | Update monthly budget |
+
+**PUT body:** `{ "monthlyBudget": 15000 }`
 
 ---
 
-### Health
+## Architecture
 
-#### `GET /health`
-Check server, database, and email service status.
+### SMS Pipeline (real-time)
 
-```json
-{
-  "status": "OK",
-  "services": { "mongodb": "connected", "email": "configured", "server": "running" }
-}
+```
+SmsReceiver.kt (BroadcastReceiver)
+  → SmsEventSink (process-wide bridge)
+    → SmsService (EventChannel stream)
+      → SmsPipeline._process()
+          → SmsClassifier.classify()   ← promotional / telecom / bank gates
+          → SmsParser.parse()          ← amount, type, bank, account, counterparty
+          → SmsDatabase.saveTransaction()  ← SQLite with ConflictAlgorithm.ignore
+          → onTransaction callback     → FinanceProvider.prependSmsTransaction()
+          → onAccountDetected callback → FinanceProvider.ensureAccountExists()
 ```
 
----
+### SMS Sync (historical inbox)
 
-## Screenshots
+```
+AppLifecycleState.resumed / initState
+  → SmsSyncService.autoSync()   ← 5-min cooldown guard
+    → SmsSyncService.syncSms()
+        → Permission.sms.request()
+        → Telephony.getInboxSms()  ← up to 100 messages, newest first
+        → [filter pipeline]
+        → SmsParser.parse()
+        → SmsDatabase.saveTransaction()
+        → SmsStorageHelper.addProcessedIds()
+        → SmsStorageHelper.setLastSyncTime()
+        → onTransaction / onAccountDetected callbacks
+```
 
-> Add screenshots here to showcase the app UI.
+### State Management
 
-| Dashboard | Transactions | Analytics |
-|---|---|---|
-| ![Dashboard](screenshots/dashboard.png) | ![Transactions](screenshots/transactions.png) | ![Analytics](screenshots/analytics.png) |
-
-| Login | OTP Verification | Transaction Detail |
-|---|---|---|
-| ![Login](screenshots/login.png) | ![OTP](screenshots/otp.png) | ![Detail](screenshots/detail.png) |
+`FinanceProvider` (single `ChangeNotifier`) manages:
+- `_accounts` — loaded from `GET /accounts`
+- `_transactions` — merged from `GET /transactions` + `SmsDatabase.getAllTransactions()`
+- `_analyticsData` — loaded from `GET /analytics`
+- `_monthlyBudget` — loaded from `GET /budget`, cached in SharedPreferences
 
 ---
 
 ## Contributing
 
-Contributions are welcome. Please follow these steps:
-
 1. Fork the repository
-2. Create a feature branch
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. Make your changes and add tests where applicable
-4. Ensure all tests pass
-   ```bash
-   # Backend
-   cd backend && npm test
-   # Flutter
-   cd frontend && flutter test
-   ```
-5. Commit with a clear message
-   ```bash
-   git commit -m "feat: add spending category filter"
-   ```
-6. Push and open a Pull Request against `main`
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make changes and commit: `git commit -m "feat: description"`
+4. Push and open a Pull Request against `main`
 
 ### Code style
-- **Dart:** follow the rules in `frontend/analysis_options.yaml` (`flutter_lints`)
-- **JavaScript:** keep functions small and add JSDoc comments for new routes
-- **Commits:** use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`)
-
-### Reporting issues
-Open a GitHub Issue with:
-- Steps to reproduce
-- Expected vs actual behaviour
-- Device/OS version and Flutter/Node version
+- **Dart:** `flutter_lints` rules in `analysis_options.yaml`
+- **JavaScript:** JSDoc comments for new routes
+- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`)
 
 ---
 
 ## License
 
-This project is licensed under the **ISC License**.
-
-```
-ISC License
-
-Copyright (c) 2026 SmartFin
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-```
+ISC License — Copyright (c) 2026 SmartFin
 
 ---
 
 ## Contact
-
-For questions, bug reports, or feature requests:
 
 - **Email:** smartfin.26@gmail.com
 - **GitHub Issues:** [github.com/your-username/smartfin/issues](https://github.com/your-username/smartfin/issues)

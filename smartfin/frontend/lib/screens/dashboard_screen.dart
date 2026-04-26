@@ -5,10 +5,10 @@ import 'transaction_detail_screen.dart';
 
 // Slide-up route reused from transactions_screen
 PageRoute<T> _slideRoute<T>(Widget page) => PageRouteBuilder<T>(
-      pageBuilder: (_, _, _) => page,
+      pageBuilder: (context, animation, secondaryAnimation) => page,
       transitionDuration: const Duration(milliseconds: 300),
       reverseTransitionDuration: const Duration(milliseconds: 250),
-      transitionsBuilder: (_, animation, _, child) {
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
         final slide = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
             .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
         return SlideTransition(position: slide, child: child);
@@ -109,19 +109,21 @@ class DashboardScreen extends StatelessWidget {
 
               SizedBox(
                 height: 140,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  // Fix #16: use builder so the last card has no trailing margin.
-                  children: [
-                    for (int i = 0; i < provider.accounts.length; i++)
-                      AccountCard(
-                        title: provider.accounts[i].title,
-                        number: provider.accounts[i].number,
-                        balance: provider.accounts[i].balance,
-                        isLast: i == provider.accounts.length - 1,
-                      ),
-                  ],
-                ),
+                child: provider.isLoadingAccounts && provider.accounts.isEmpty
+                    // Accounts-only loading state (e.g. after SMS sync adds a new account)
+                    ? const Center(child: CircularProgressIndicator())
+                    : provider.accounts.isEmpty
+                        ? _EmptyAccountsPlaceholder(onRefresh: provider.loadAccounts)
+                        : ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: provider.accounts.length,
+                            itemBuilder: (context, i) => AccountCard(
+                              title:   provider.accounts[i].title,
+                              number:  provider.accounts[i].number,
+                              balance: provider.accounts[i].balance,
+                              isLast:  i == provider.accounts.length - 1,
+                            ),
+                          ),
               ),
 
               const SizedBox(height: 24),
@@ -183,9 +185,8 @@ class DashboardScreen extends StatelessWidget {
 
 class AccountCard extends StatelessWidget {
   final String title;
-  final String number;
-  final String balance;
-  // Fix #16: no trailing margin on the last card.
+  final String number;   // e.g. "**** 8045" or "4492" or "XX8045"
+  final String balance;  // formatted, e.g. "₹1,00,000.00"
   final bool isLast;
 
   const AccountCard({
@@ -196,28 +197,121 @@ class AccountCard extends StatelessWidget {
     this.isLast = false,
   });
 
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  /// Formats any number string into "••••  XXXX" display form.
+  ///
+  /// Extracts the last 4 digits from whatever format is stored:
+  ///   "**** 8045"  → "••••  8045"
+  ///   "XX8045"     → "••••  8045"
+  ///   "4492"       → "••••  4492"
+  String get _maskedNumber {
+    final digits = number.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return number; // fallback: show as-is
+    final last4 = digits.length >= 4 ? digits.substring(digits.length - 4) : digits;
+    return '••••  $last4';
+  }
+
+  /// Pick a card gradient based on the account title (bank name).
+  List<Color> get _gradient {
+    final t = title.toLowerCase();
+    if (t.contains('hdfc'))   { return [const Color(0xFF1B3A57), const Color(0xFF2E6DA4)]; }
+    if (t.contains('sbi') || t.contains('state bank')) {
+      return [const Color(0xFF1A5276), const Color(0xFF2980B9)];
+    }
+    if (t.contains('icici'))  { return [const Color(0xFF922B21), const Color(0xFFE74C3C)]; }
+    if (t.contains('axis'))   { return [const Color(0xFF6C3483), const Color(0xFF9B59B6)]; }
+    if (t.contains('kotak'))  { return [const Color(0xFF784212), const Color(0xFFCA6F1E)]; }
+    if (t.contains('paytm') || t.contains('phonepe') || t.contains('gpay')) {
+      return [const Color(0xFF1A5276), const Color(0xFF148F77)];
+    }
+    // Default navy
+    return [const Color(0xFF1B3A57), const Color(0xFF2C5F8A)];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 220,
+      width: 200,
       margin: EdgeInsets.only(right: isLast ? 0 : 12),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: _gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: _gradient.first.withValues(alpha: 0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () {},
+          splashColor: Colors.white.withValues(alpha: 0.1),
+          onTap: () {}, // reserved for future account detail screen
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title),
-                Text(number, style: const TextStyle(color: Colors.grey)),
+                // Bank name
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                // Masked account number
+                Text(
+                  _maskedNumber,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 12,
+                    letterSpacing: 1.5,
+                  ),
+                ),
                 const Spacer(),
-                Text(balance, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const Text('ACTIVE', style: TextStyle(color: Colors.green)),
+                // Balance
+                Text(
+                  balance,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                // Status badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'ACTIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -277,6 +371,52 @@ class NavItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(label, style: TextStyle(fontSize: 12, color: active ? Colors.blue : Colors.grey)),
       ],
+    );
+  }
+}
+
+// ── Empty accounts placeholder ────────────────────────────────────────────────
+
+class _EmptyAccountsPlaceholder extends StatelessWidget {
+  final VoidCallback onRefresh;
+  const _EmptyAccountsPlaceholder({required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.account_balance_outlined,
+              size: 28, color: Colors.grey.shade400),
+          const SizedBox(width: 12),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'No accounts yet',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Accounts appear after SMS sync',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

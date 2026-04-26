@@ -66,12 +66,13 @@ class FinanceService {
     DateTime? date,
   }) async {
     final body = <String, dynamic>{
-      'title':    ?title,
-      'amount':   ?amount,
-      'type':     ?type,
-      'category': ?category,
+      if (title    != null) 'title':    title,
+      if (amount   != null) 'amount':   amount,
+      if (type     != null) 'type':     type,
+      if (category != null) 'category': category,
       if (date     != null) 'date':     date.toIso8601String(),
-    };    final response = await _client.authPut('/transactions/$id', body: body);
+    };
+    final response = await _client.authPut('/transactions/$id', body: body);
     return TransactionModel.fromJson(
       response['data'] as Map<String, dynamic>,
     );
@@ -116,5 +117,30 @@ class FinanceService {
     return AnalyticsData.fromJson(
       response['data'] as Map<String, dynamic>,
     );
+  }
+
+  // ── Budget ─────────────────────────────────────────────────────────────────
+
+  /// Fetches the user's monthly budget from the backend.
+  /// Returns the default [defaultBudget] if the request fails.
+  Future<double> getBudget({double defaultBudget = 10000}) async {
+    try {
+      final response = await _client.authGet('/budget');
+      final data = response['data'] as Map<String, dynamic>?;
+      return (data?['monthlyBudget'] as num?)?.toDouble() ?? defaultBudget;
+    } catch (_) {
+      return defaultBudget;
+    }
+  }
+
+  /// Persists the user's monthly budget to the backend.
+  /// Throws [ApiException] on failure.
+  Future<double> setBudget(double amount) async {
+    final response = await _client.authPut(
+      '/budget',
+      body: {'monthlyBudget': amount},
+    );
+    final data = response['data'] as Map<String, dynamic>?;
+    return (data?['monthlyBudget'] as num?)?.toDouble() ?? amount;
   }
 }
