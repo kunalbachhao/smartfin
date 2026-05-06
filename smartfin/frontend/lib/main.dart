@@ -7,12 +7,17 @@ import 'screens/main_shell.dart';
 import 'services/sms_classifier.dart';
 import 'services/sms_pipeline.dart';
 import 'services/sms_sync_service.dart';
+import 'services/budget_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Load telecom keyword list from asset before the first SMS arrives.
   await SmsClassifier.loadKeywords();
+
+  // Initialise local notifications and request permission (Android 13+).
+  // Done before runApp so the plugin is ready before any alert can fire.
+  await BudgetNotificationService.instance.init();
 
   runApp(
     MultiProvider(

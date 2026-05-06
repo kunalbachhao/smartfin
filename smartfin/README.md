@@ -70,6 +70,8 @@ smartfin/
     │       ├── SmsReceiver.kt          # BroadcastReceiver for incoming SMS
     │       ├── SmsEventSink.kt         # Process-wide sink bridge
     │       └── SmsForegroundService.kt # Headless engine for background SMS
+    ├── assets/
+    │   └── telecom_keywords.txt        # Editable keyword list for telecom filtering
     └── lib/
         ├── main.dart                   # App entry, provider wiring, lifecycle observer
         ├── data/
@@ -97,7 +99,7 @@ smartfin/
             ├── api_client.dart         # HTTP client with retry
             ├── auth_service.dart       # Auth API calls
             ├── finance_service.dart    # Transactions, accounts, analytics, budget API
-            ├── sms_classifier.dart     # Promotional + telecom + bank classification
+            ├── sms_classifier.dart     # Promotional + telecom keyword + bank classification
             ├── sms_database.dart       # SQLite CRUD for parsed SMS transactions
             ├── sms_parser.dart         # Extracts amount, type, bank, account, counterparty
             ├── sms_pipeline.dart       # Real-time SMS → classify → parse → save
@@ -267,13 +269,38 @@ Every SMS passes through these gates in order before being parsed or stored:
 | Gate | Filter | Action |
 |---|---|---|
 | 0 | Promotional sender (TRAI DLT `-P` suffix, e.g. `AD-60022-P`) | Drop |
-| 1 | Telecom service message (recharge, data pack, validity, SIM) | Drop |
-| 1† | Financial safety guard (debited/credited/UPI/INR in body) | Override — always pass |
+| 1 | Telecom keyword match (`assets/telecom_keywords.txt`) | Drop |
+| 1† | Financial safety guard (`debited`/`credited`/`UPI`/`INR X debited` in body) | Override — always pass |
 | 2 | Bank/payment sender pattern (HDFC, SBIN, ICICI, PAYTM, etc.) | Pass |
 | 3 | Body keyword scan (credited, debited, UPI, INR, txn, payment, etc.) | Pass |
 | 4 | Transaction keyword check (sync service only) | Pass |
 | 5 | Timestamp after `lastSyncTime` (sync service only) | Pass |
 | 6 | Not in processed-ID set (sync service only) | Pass |
+
+#### Telecom keyword file
+
+Telecom filtering is driven by a plain-text keyword list at:
+
+```
+frontend/assets/telecom_keywords.txt
+```
+
+- One keyword per line, case-insensitive
+- Lines starting with `#` are comments
+- **No code changes needed** — edit the file to add or remove keywords
+- Loaded once at app startup via `SmsClassifier.loadKeywords()`
+- Covers 90+ keywords across: recharge, data pack/plan, validity, SIM service, low balance alerts, carrier offers, and carrier-specific phrases
+
+Example entries:
+```
+recharge
+data pack
+validity expires
+SIM activated
+welcome to jio
+low balance
+plan expiring
+```
 
 ### SMS Parsing
 - **Amount** — matches `INR 5,000`, `Rs.500`, `₹200.00`

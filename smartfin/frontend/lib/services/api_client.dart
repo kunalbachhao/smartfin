@@ -18,7 +18,7 @@ class ApiClient {
 
 
   static String get baseUrl {
-    return 'https://equation-anthem-delay.ngrok-free.dev';
+    return 'https://smartfin-kt2l.onrender.com';
   }
 
   // ── Timeouts ───────────────────────────────────────────────────────────────

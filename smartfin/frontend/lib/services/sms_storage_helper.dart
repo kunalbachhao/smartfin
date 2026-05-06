@@ -122,6 +122,38 @@ class SmsStorageHelper {
     await prefs.remove(keyProcessedIds);
   }
 
+  // ── Month boundary helpers ────────────────────────────────────────────────
+
+  /// Returns a [DateTime] representing midnight on the 1st of the current
+  /// calendar month, in the device's local timezone.
+  ///
+  /// Example: called on 14 May 2026 → `DateTime(2026, 5, 1, 0, 0, 0)`.
+  ///
+  /// Uses the local-timezone constructor `DateTime(year, month, day)` so the
+  /// result is always correct regardless of the device's UTC offset.
+  /// Calling `DateTime.now()` inside the function means the value is
+  /// recalculated fresh on every call — safe after app restarts and across
+  /// month boundaries.
+  static DateTime currentMonthStart() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, 1);
+  }
+
+  /// Returns the milliseconds-since-epoch value for midnight on the 1st of
+  /// the current calendar month.
+  ///
+  /// This is the format expected by the Android SMS content provider
+  /// (`tel.SmsColumn.DATE`) and by [tel.Telephony.instance.getInboxSms]
+  /// filter arguments.
+  ///
+  /// Example: called on 14 May 2026 (UTC+5:30) →
+  ///   `DateTime(2026, 5, 1).millisecondsSinceEpoch`
+  ///   = 1746028200000  (IST midnight = UTC 18:30 on 30 Apr)
+  ///
+  /// The value changes automatically when the month rolls over because
+  /// [currentMonthStart] calls `DateTime.now()` on every invocation.
+  static int currentMonthStartMs() => currentMonthStart().millisecondsSinceEpoch;
+
   // ── Bulk reset ─────────────────────────────────────────────────────────────
 
   /// Clears both [lastSyncTime] and the processed-ID set.

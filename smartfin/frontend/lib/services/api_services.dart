@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = 'https://equation-anthem-delay.ngrok-free.dev';
+  static const String baseUrl = 'https://smartfin-kt2l.onrender.com';
 
   // Generic POST request handler
   static Future<Map<String, dynamic>> _postRequest(
@@ -14,7 +14,7 @@ class ApiService {
         body: jsonEncode(body),
       );
 
-      // Check if response is HTML (server crash / ngrok issue)
+      // Check if response is HTML (server crash / render issue)
       if (response.headers['content-type']?.contains('text/html') ?? false) {
         return {
           'success': false,

@@ -30,6 +30,13 @@
         foreground service type used for data processing (SMS monitoring).
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--
+        POST_NOTIFICATIONS (dangerous — runtime grant required on Android 13+)
+        Required to show local notifications (budget alerts) on API 33+.
+        On older API levels this permission is implicitly granted.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="smartfin"
         android:name="${applicationName}"

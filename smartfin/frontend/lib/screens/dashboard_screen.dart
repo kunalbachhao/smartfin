@@ -3,6 +3,23 @@ import 'package:provider/provider.dart';
 import '../providers/finance_provider.dart';
 import 'transaction_detail_screen.dart';
 
+// ── Budget colour helper (shared by card and skeleton) ────────────────────────
+
+/// Returns the progress bar / indicator colour for a given [ratio] (0.0–1.0+).
+///
+/// Thresholds:
+///   0 – 50 %   → green
+///   50 – 75 %  → yellow / amber
+///   75 – 90 %  → orange
+///   90 – 100%+ → red
+Color _budgetColor(double ratio) {
+  final pct = ratio * 100;
+  if (pct < 50)  return const Color(0xFF388E3C); // green
+  if (pct < 75)  return const Color(0xFFF9A825); // amber
+  if (pct < 90)  return const Color(0xFFF57C00); // orange
+  return              const Color(0xFFD32F2F); // red
+}
+
 // Slide-up route reused from transactions_screen
 PageRoute<T> _slideRoute<T>(Widget page) => PageRouteBuilder<T>(
       pageBuilder: (context, animation, secondaryAnimation) => page,
@@ -71,30 +88,25 @@ class DashboardScreen extends StatelessWidget {
               const SizedBox(height: 20),
 
               const Text(
-                "TOTAL NET WORTH",
+                "TOTAL EXPENDITURE",
                 style: TextStyle(color: Colors.grey, letterSpacing: 1),
               ),
               const SizedBox(height: 8),
 
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      provider.netWorthFormatted,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1B4F72),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(provider.growthPercent, style: const TextStyle(color: Colors.green)),
-                ],
+              Text(
+                provider.netWorthFormatted,
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1B4F72),
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
+
+              // ── Monthly Budget Insight ────────────────────────────────────
+              const BudgetInsightCard(),
               const SizedBox(height: 24),
 
               const Row(
@@ -458,6 +470,334 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
+// ── BudgetInsightCard ─────────────────────────────────────────────────────────
+//
+// Displays the monthly budget progress bar with colour-coded indicator,
+// percentage used, and remaining amount.  Reads live data from
+// [FinanceProvider] via [context.watch] so it rebuilds automatically after
+// every transaction mutation.
+
+class BudgetInsightCard extends StatelessWidget {
+  const BudgetInsightCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<FinanceProvider>();
+
+    // Show a compact shimmer skeleton until the budget value has been
+    // fetched from the backend or local cache.  This prevents the card
+    // from briefly rendering the in-memory default (₹10,000) before the
+    // real value arrives, which would cause a visible snap/flash.
+    if (!provider.isBudgetLoaded) {
+      return const _BudgetInsightSkeleton();
+    }
+
+    final ratio     = provider.budgetUsageRatio.clamp(0.0, 1.0);
+    final pct       = provider.budgetUsagePercent;
+    final color     = _budgetColor(ratio);
+    final exceeded  = provider.isBudgetExceeded;
+    final remaining = provider.budgetRemaining;
+
+    // Status label changes with severity.
+    final String statusLabel;
+    if (pct < 50) {
+      statusLabel = 'On track';
+    // ignore: curly_braces_in_flow_control_structures
+    } else if (pct < 75)  statusLabel = 'Monitor spending';
+    // ignore: curly_braces_in_flow_control_structures
+    else if (pct < 90)  statusLabel = 'Spend carefully';
+    // ignore: curly_braces_in_flow_control_structures
+    else if (pct < 100) statusLabel = 'Near limit';
+    // ignore: curly_braces_in_flow_control_structures
+    else                statusLabel = 'Budget exceeded';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header row ──────────────────────────────────────────────────
+          Row(
+            children: [
+              const Text(
+                'Monthly Budget',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1B3A57),
+                ),
+              ),
+              const Spacer(),
+              // Colour-coded status badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // ── Animated progress bar ────────────────────────────────────────
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: ratio),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: value,
+                      minHeight: 10,
+                      backgroundColor: const Color(0xFFEEEEEE),
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // ── Stats row ──────────────────────────────────────────
+                  Row(
+                    children: [
+                      // Percentage used — large and colour-coded
+                      Text(
+                        '${pct.toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'used',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const Spacer(),
+                      // Remaining / over-budget amount
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            exceeded ? 'Over by' : 'Remaining',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            _formatAmount(remaining.abs()),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: exceeded ? const Color(0xFFD32F2F) : const Color(0xFF388E3C),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 10),
+
+          // ── Budget total line ────────────────────────────────────────────
+          Row(
+            children: [
+              Text(
+                _formatAmount(provider.currentMonthExpenses),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+              const Text(
+                ' / ',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              Text(
+                _formatAmount(provider.monthlyBudget),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              const Text(
+                'this month',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Formats a rupee amount compactly, e.g. 10000 → "₹10,000".
+  static String _formatAmount(double value) {
+    final abs  = value.abs();
+    final sign = value < 0 ? '-' : '';
+    // Use integer display when the value has no meaningful decimal part.
+    final str  = abs >= 1000
+        ? abs.toStringAsFixed(0)
+        : abs.toStringAsFixed(2);
+    final parts = str.split('.');
+    final grouped = _indianGroup(parts[0]);
+    return parts.length > 1 && parts[1] != '00'
+        ? '$sign₹$grouped.${parts[1]}'
+        : '$sign₹$grouped';
+  }
+
+  static String _indianGroup(String s) {
+    if (s.length <= 3) return s;
+    final last3 = s.substring(s.length - 3);
+    final rest  = s.substring(0, s.length - 3);
+    final buf   = StringBuffer();
+    for (int i = 0; i < rest.length; i++) {
+      if (i > 0 && (rest.length - i) % 2 == 0) buf.write(',');
+      buf.write(rest[i]);
+    }
+    return '${buf.toString()},$last3';
+  }
+}
+
+// ── BudgetInsightCard skeleton ────────────────────────────────────────────────
+// Shown while the budget value is being fetched from the backend.
+// Matches the BudgetInsightCard dimensions so there is no layout shift.
+
+class _BudgetInsightSkeleton extends StatefulWidget {
+  const _BudgetInsightSkeleton();
+
+  @override
+  State<_BudgetInsightSkeleton> createState() => _BudgetInsightSkeletonState();
+}
+
+class _BudgetInsightSkeletonState extends State<_BudgetInsightSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _shimmer;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _shimmer = Tween<double>(begin: 0.4, end: 0.9).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _shimmer,
+      builder: (context, _) {
+        final shade = Color.lerp(
+          const Color(0xFFE0E0E0),
+          const Color(0xFFF5F5F5),
+          _shimmer.value,
+        )!;
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row skeleton
+              Row(
+                children: [
+                  _Bone(width: 120, height: 14, color: shade),
+                  const Spacer(),
+                  _Bone(width: 80, height: 22, radius: 20, color: shade),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // Progress bar skeleton
+              _Bone(width: double.infinity, height: 10, radius: 8, color: shade),
+              const SizedBox(height: 10),
+              // Stats row skeleton
+              Row(
+                children: [
+                  _Bone(width: 60, height: 28, color: shade),
+                  const SizedBox(width: 6),
+                  _Bone(width: 30, height: 14, color: shade),
+                  const Spacer(),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _Bone(width: 60, height: 11, color: shade),
+                      const SizedBox(height: 4),
+                      _Bone(width: 80, height: 14, color: shade),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Footer line skeleton
+              Row(
+                children: [
+                  _Bone(width: 100, height: 12, color: shade),
+                  const Spacer(),
+                  _Bone(width: 60, height: 11, color: shade),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ── Skeleton UI ───────────────────────────────────────────────────────────────
 // Shown while the first data load is in flight. Matches the dashboard layout
 // exactly so there is no layout shift when real data arrives.
@@ -525,8 +865,8 @@ class _DashboardSkeletonState extends State<_DashboardSkeleton>
                   const SizedBox(height: 10),
                   _Bone(width: 200, height: 36, color: shade),
                   const SizedBox(height: 24),
-                  // Pay bill button
-                  _Bone(width: 120, height: 44, radius: 30, color: shade),
+                  // Budget insight card skeleton
+                  _Bone(width: double.infinity, height: 110, radius: 20, color: shade),
                   const SizedBox(height: 28),
                   // Accounts header
                   Row(

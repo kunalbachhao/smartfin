@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/finance_provider.dart';
+import '../services/budget_notification_service.dart';
 import 'dashboard_screen.dart';
 import 'analytics_screen.dart';
 import 'transactions_screen.dart';
@@ -39,7 +40,106 @@ class _MainShellState extends State<MainShell> {
       if (!mounted) return;
       context.read<FinanceProvider>().switchToTransactionsTab =
           () => _onTabTap(2);
+      // Start listening for budget alerts after the first frame so the
+      // ScaffoldMessenger is guaranteed to be in the tree.
+      context.read<FinanceProvider>().addListener(_onFinanceProviderUpdate);
     });
+  }
+
+  @override
+  void dispose() {
+    // Remove the listener to prevent callbacks on a disposed widget.
+    context.read<FinanceProvider>().removeListener(_onFinanceProviderUpdate);
+    super.dispose();
+  }
+
+  /// Called on every [FinanceProvider.notifyListeners].
+  /// Shows a snackbar when a new [BudgetAlert] is pending, then clears it.
+  void _onFinanceProviderUpdate() {
+    if (!mounted) return;
+    final finance = context.read<FinanceProvider>();
+    final alert   = finance.pendingAlert;
+    if (alert == null) return;
+
+    // Consume immediately so a second rebuild does not re-show the same alert.
+    finance.clearPendingAlert();
+
+    _showBudgetSnackbar(alert);
+  }
+
+  /// Displays a styled in-app snackbar for [alert].
+  ///
+  /// The snackbar is shown via [ScaffoldMessenger] so it floats above all
+  /// tabs and is not dismissed by tab switches.
+  void _showBudgetSnackbar(BudgetAlert alert) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    // Dismiss any existing budget snackbar before showing the new one.
+    messenger.hideCurrentSnackBar();
+
+    final color = _snackbarColorFor(alert.thresholdPct);
+    final icon  = _snackbarIconFor(alert.thresholdPct);
+
+    messenger.showSnackBar(
+      SnackBar(
+        behavior:        SnackBarBehavior.floating,
+        backgroundColor: color,
+        duration:        const Duration(seconds: 5),
+        margin:          const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    BudgetNotificationService.titleFor(alert),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    BudgetNotificationService.bodyFor(alert),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Snackbar background colour matching the alert severity.
+  static Color _snackbarColorFor(int pct) {
+    if (pct >= 100) return const Color(0xFFD32F2F); // red
+    if (pct >= 90)  return const Color(0xFFE64A19); // deep orange
+    if (pct >= 75)  return const Color(0xFFF57C00); // orange
+    if (pct >= 50)  return const Color(0xFFF9A825); // amber
+    return              const Color(0xFF388E3C);    // green (25%)
+  }
+
+  /// Icon matching the alert severity.
+  static IconData _snackbarIconFor(int pct) {
+    if (pct >= 100) return Icons.error_outline;
+    if (pct >= 90)  return Icons.warning_amber_rounded;
+    if (pct >= 75)  return Icons.warning_outlined;
+    if (pct >= 50)  return Icons.info_outline;
+    return              Icons.check_circle_outline;
   }
 
   // Fix #15: exposed as a non-private method so DashboardScreen can call it

@@ -13,6 +13,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -48,4 +49,5 @@ dependencies {
     // Flutter's EventChannel is in the flutter_embedding — use the local AAR
     // that Flutter's Gradle plugin provides at build time.
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

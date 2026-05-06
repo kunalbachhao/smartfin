@@ -19,7 +19,7 @@ typedef InboxFetcher = Future<List<tel.SmsMessage>> Function();
 ///
 /// Sync pipeline per cycle:
 ///   permission check
-///     → inbox fetch (up to [_fetchLimit] messages, newest first)
+///     → inbox fetch (current month only, via content-resolver date filter)
 ///       → gate 1: bank classification  (sender pattern + body keywords)
 ///       → gate 2: transaction keywords (debited/credited/INR/spent/…)
 ///       → gate 3: timestamp after lastSyncTime
@@ -46,9 +46,6 @@ class SmsSyncService {
   final InboxFetcher _inboxFetcher;
 
   // ── Tuning constants ───────────────────────────────────────────────────────
-
-  /// Maximum number of inbox messages fetched per sync cycle.
-  static const _fetchLimit = 100;
 
   /// Cooldown between [autoSync] calls (seconds).
   static const _cooldownSeconds = 300; // 5 minutes
@@ -83,6 +80,20 @@ class SmsSyncService {
   // ── Default production fetcher ─────────────────────────────────────────────
 
   static Future<List<tel.SmsMessage>> _defaultFetcher() async {
+    // Filter at the content-resolver level: only fetch messages whose DATE
+    // column is >= the first millisecond of the current calendar month.
+    //
+    // This pushes the date boundary into the Android SMS content provider
+    // query (SQL WHERE clause) so the platform never returns older messages
+    // to Dart at all — reducing the dataset before any Dart-side filtering.
+    //
+    // SmsStorageHelper.currentMonthStartMs() recalculates DateTime.now()
+    // on every call, so the boundary is always correct after app restarts
+    // and across month rollovers.
+    final monthStartMs = SmsStorageHelper.currentMonthStartMs();
+    final filter = tel.SmsFilter.where(tel.SmsColumn.DATE)
+        .greaterThanOrEqualTo(monthStartMs.toString());
+
     final messages = await tel.Telephony.instance.getInboxSms(
       columns: [
         tel.SmsColumn.ID,
@@ -90,11 +101,11 @@ class SmsSyncService {
         tel.SmsColumn.BODY,
         tel.SmsColumn.DATE,
       ],
+      filter:    filter,
       sortOrder: [tel.OrderBy(tel.SmsColumn.DATE, sort: tel.Sort.DESC)],
     );
-    return messages.length > _fetchLimit
-        ? messages.sublist(0, _fetchLimit)
-        : messages;
+
+    return messages;
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -165,7 +176,7 @@ class SmsSyncService {
 
     if (kDebugMode) {
       debugPrint('[SmsSyncService] fetched: ${rawMessages.length} message(s) '
-          '(limit: $_fetchLimit)');
+          '(current month only)');
     }
 
     // ── 4. Filter pipeline + parse + save ─────────────────────────────────
